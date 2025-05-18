@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI平台测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .record-button {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        .record-button.recording {
+            background-color: #4CAF50;
+        }
+        .status-container {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        .status-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            border-left: 4px solid #ddd;
+        }
+        .status-start { border-left-color: #2196F3; }
+        .status-service-start { border-left-color: #FFC107; }
+        .status-service-running { border-left-color: #FF9800; }
+        .status-service-success { border-left-color: #4CAF50; }
+        .status-complete { border-left-color: #673AB7; }
+        .status-error { border-left-color: #f44336; }
+    </style>
+</head>
+<body>
+    <h1>AI平台语音助手测试</h1>
+    
+    <div class="controls">
+        <button id="record-button" class="record-button">开始录音</button>
+        <span id="record-status">未录音</span>
+    </div>
+    
+    <div class="status-container" id="status-container"></div>
+    
+    <script>
+        // 生成客户端ID
+        const clientId = 'client-' + Math.random().toString(36).substring(2, 9);
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let ws = null;
+        
+        // 连接WebSocket
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}/ws/${clientId}`);
+            
+            ws.onopen = function() {
+                addStatus('WebSocket连接已建立', 'status-start');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                let className = 'status-' + data.status.replace('_', '-');
+                addStatus(data.message, className);
+            };
+            
+            ws.onclose = function() {
+                setTimeout(connectWebSocket, 1000);
+            };
+        }
+        
+        // 添加状态信息
+        function addStatus(message, className) {
+            const container = document.getElementById('status-container');
+            const item = document.createElement('div');
+            item.className = `status-item ${className || ''}`;
+            item.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            container.appendChild(item);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        // 开始/停止录音
+        async function toggleRecording() {
+            if (isRecording) {
+                // 停止录音
+                mediaRecorder.stop();
+                document.getElementById('record-button').textContent = '开始录音';
+                document.getElementById('record-button').classList.remove('recording');
+                document.getElementById('record-status').textContent = '录音已完成，处理中...';
+                isRecording = false;
+            } else {
+                // 开始录音
+                audioChunks = [];
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        // 处理音频数据
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        await sendAudioToServer(audioBlob);
+                    };
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    document.getElementById('record-button').textContent = '停止录音';
+                    document.getElementById('record-button').classList.add('recording');
+                    document.getElementById('record-status').textContent = '录音中...';
+                    addStatus('开始录音', 'status-start');
+                } catch (err) {
+                    addStatus(`录音错误: ${err.message}`, 'status-error');
+                }
+            }
+        }
+        
+        // 发送音频到服务器
+        async function sendAudioToServer(audioBlob) {
+            try {
+                addStatus('发送音频到服务器', 'status-start');
+                
+                const response = await fetch('/api/v1/process_audio', {
+                    method: 'POST',
+                    body: audioBlob,
+                    headers: {
+                        'Content-Type': 'audio/wav',
+                        'X-Client-ID': clientId
+                    }
+                });
+                
+                const result = await response.json();
+                document.getElementById('record-status').textContent = '处理中...';
+                addStatus('音频已发送，开始处理', 'status-start');
+            } catch (err) {
+                addStatus(`发送音频错误: ${err.message}`, 'status-error');
+                document.getElementById('record-status').textContent = '发送失败';
+            }
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+            document.getElementById('record-button').addEventListener('click', toggleRecording);
+        });
+    </script>
+</body>
+</html> 
