@@ -1,0 +1,7 @@
+{
+  "app_name": "AI Platform",
+  "debug_mode": true,
+  "api_version": "1.0.0",
+  "cors_allow_origins": ["*"],
+  "log_level": "info"
+} 

@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # API网关 - 处理所有外部请求并路由到对应的模型服务
+  api-gateway:
+    build:
+      context: ./api/gateway
+      dockerfile: ../../docker/Dockerfile.gateway
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app/api
+      - ./config:/app/config
+    environment:
+      - MODEL_A_URL=http://model-a:8001
+      - MODEL_B_URL=http://model-b:8002
+    networks:
+      - ai-network
+    depends_on:
+      - model-a
+      - model-b
+
+  # 模型A服务 - 独立的AI模型服务
+  model-a:
+    build:
+      context: ./services/model_a
+      dockerfile: ../../docker/Dockerfile.model
+    volumes:
+      - ./services/model_a:/app/service
+      - ./models:/app/models
+    environment:
+      - MODEL_NAME=model_a
+      - MODEL_PORT=8001
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    networks:
+      - ai-network
+
+  # 模型B服务 - 独立的AI模型服务
+  model-b:
+    build:
+      context: ./services/model_b
+      dockerfile: ../../docker/Dockerfile.model
+    volumes:
+      - ./services/model_b:/app/service
+      - ./models:/app/models
+    environment:
+      - MODEL_NAME=model_b
+      - MODEL_PORT=8002
+    ports:
+      - "8002:8002"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    networks:
+      - ai-network
+
+# 网络配置 - 确保服务间可通信同时保持隔离
+networks:
+  ai-network:
+    driver: bridge
