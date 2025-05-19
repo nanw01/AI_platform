@@ -1,0 +1,233 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gateway
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./static:/app/static
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - ORCHESTRATOR_URL=http://orchestrator:7000
+      - VAD_SERVICE_URL=http://vad-service:7001
+      - ASR_SERVICE_URL=http://asr-service:7002
+      - LLM_SERVICE_URL=http://llm-service:7003
+      - TTS_SERVICE_URL=http://tts-service:7004
+      - MEMORY_SERVICE_URL=http://memory-service:7005
+      - INTENT_SERVICE_URL=http://intent-service:7006
+    depends_on:
+      - redis
+      - rabbitmq
+      - vad-service
+      - asr-service
+      - llm-service
+      - tts-service
+      - memory-service
+      - intent-service
+    networks:
+      - ai-network
+
+  # Orchestrator
+  orchestrator:
+    image: python:3.10-slim
+    command: >
+      sh -c "pip install --no-cache-dir fastapi uvicorn httpx &&
+             cd /app && python -m uvicorn orchestrator.main:app --host 0.0.0.0 --port 7000 --reload"
+    volumes:
+      - ./orchestrator:/app/orchestrator
+      - ./shared:/app/shared
+      - ./config:/app/config
+    ports:
+      - "7000:7000"
+    environment:
+      - VAD_SERVICE_URL=http://vad-service:7001
+      - ASR_SERVICE_URL=http://asr-service:7002
+      - LLM_SERVICE_URL=http://llm-service:7003
+      - TTS_SERVICE_URL=http://tts-service:7004
+      - MEMORY_SERVICE_URL=http://memory-service:7005
+      - INTENT_SERVICE_URL=http://intent-service:7006
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - PYTHONPATH=/app
+      - ENVIRONMENT=development
+      - DEBUG=true
+    depends_on:
+      - redis
+      - rabbitmq
+    networks:
+      - ai-network
+
+  # VAD Service
+  vad-service:
+    build:
+      context: ./services/vad_service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/vad_service:/app/services/vad_service
+      - ./models/vad:/app/models/vad
+    ports:
+      - "7001:7001"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
+    networks:
+      - ai-network
+
+  # ASR Service
+  asr-service:
+    build:
+      context: ./services/asr_service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/asr_service:/app/services/asr_service
+      - ./models/asr:/app/models/asr
+    ports:
+      - "7002:7002"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
+    networks:
+      - ai-network
+
+  # LLM Service
+  llm-service:
+    build:
+      context: ./services/llm_service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/llm_service:/app/services/llm_service
+      - ./models/llm:/app/models/llm
+    ports:
+      - "7003:7003"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
+    networks:
+      - ai-network
+
+  # TTS Service
+  tts-service:
+    build:
+      context: ./services/tts_service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/tts_service:/app/services/tts_service
+      - ./models/tts:/app/models/tts
+    ports:
+      - "7004:7004"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
+    networks:
+      - ai-network
+
+  # Memory Service
+  memory-service:
+    build:
+      context: ./services/memory_service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/memory_service:/app/services/memory_service
+      - ./models/memory:/app/models/memory
+    ports:
+      - "7005:7005"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
+      - mongodb
+    networks:
+      - ai-network
+
+  # Intent Service
+  intent-service:
+    build:
+      context: ./services/intent_service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/intent_service:/app/services/intent_service
+      - ./models/intent:/app/models/intent
+    ports:
+      - "7006:7006"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
+    networks:
+      - ai-network
+
+  # Redis
+  redis:
+    image: redis:6.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-network
+
+  # MongoDB
+  mongodb:
+    image: mongo:5.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - ai-network
+
+  # RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3.9-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - ai-network
+
+  # LazyDocker
+  lazydocker:
+    image: lazyteam/lazydocker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - lazydocker_config:/config
+    ports:
+      - "8080:8080"
+    environment:
+      - LAZYDOCKER_CONFIG_DIR=/config
+    networks:
+      - ai-network
+
+networks:
+  ai-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  mongodb_data:
+  rabbitmq_data:
+  lazydocker_config: 

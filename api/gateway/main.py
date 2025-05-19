@@ -138,10 +138,7 @@ async def process_audio(request: Request):
 
 # 工作流状态跟踪
 async def execute_workflow_with_status(client_id: str, workflow_name: str, payload: dict, audio_data=None):
-    """执行工作流并通过WebSocket发送状态更新"""
-    # 模拟工作流中的服务顺序
-    services = ["vad", "asr", "llm", "tts"]
-    
+    """将工作流请求转发到编排服务并通过WebSocket发送状态更新"""
     try:
         # 通知开始处理工作流
         await manager.send_status(client_id, {
@@ -149,48 +146,22 @@ async def execute_workflow_with_status(client_id: str, workflow_name: str, paylo
             "message": f"开始处理工作流 {workflow_name}"
         })
         
-        # 依次调用每个服务
-        for service in services:
-            # 通知开始调用服务
+        # 根据工作流名称转发到不同的编排服务端点
+        if workflow_name == "process_audio" and audio_data:
+            # 转发音频数据到编排服务
+            async with httpx.AsyncClient(timeout=30) as client:
+                orchestrator_response = await client.post(
+                    f"{ORCHESTRATOR_URL}/api/v1/process_audio",
+                    content=audio_data,
+                    headers={"X-Client-ID": client_id}
+                )
+                orchestrator_response.raise_for_status()
+        else:
+            # 对于其他类型的工作流，可以在这里添加处理逻辑
             await manager.send_status(client_id, {
-                "status": "service_start",
-                "service": service,
-                "message": f"开始调用 {service} 服务"
+                "status": "error",
+                "message": f"未知的工作流类型: {workflow_name}"
             })
-            
-            # 模拟服务调用延迟
-            await asyncio.sleep(1)
-            
-            # 通知服务正在运行
-            await manager.send_status(client_id, {
-                "status": "service_running",
-                "service": service,
-                "message": f"{service} 服务正在运行"
-            })
-            
-            # 依据服务类型模拟不同处理时间
-            if service == "llm":
-                await asyncio.sleep(2)  # LLM通常需要更多时间
-            else:
-                await asyncio.sleep(1)
-            
-            # 通知服务运行成功
-            await manager.send_status(client_id, {
-                "status": "service_success",
-                "service": service,
-                "message": f"{service} 服务运行成功"
-            })
-        
-        # 模拟最终结果
-        result = "这是处理结果示例。在实际集成中，这里将返回各服务处理后的真实结果。"
-        
-        # 通知工作流处理完成
-        await manager.send_status(client_id, {
-            "status": "complete",
-            "message": "工作流处理完成",
-            "result": result
-        })
-        
     except Exception as e:
         logger.error(f"工作流执行错误: {str(e)}")
         # 通知错误
