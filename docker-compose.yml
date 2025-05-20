@@ -11,7 +11,7 @@ services:
     volumes:
       # 卷挂载仍然有用，用于开发时的热重载
       # Dockerfile中COPY . /app/api/gateway，所以本地的api/gateway对应容器内的/app/api/gateway
-      - ./api/gateway:/app/api/gateway 
+      - ./api/gateway:/app/api/gateway
       - ./config:/app/config # Dockerfile中COPY ../../config /app/config
       - ./shared:/app/shared # Dockerfile中COPY ../../shared /app/shared
       - ./static:/app/static # 挂载静态文件目录
@@ -27,13 +27,21 @@ services:
     networks:
       - ai-network
     depends_on:
-      - orchestrator
+      orchestrator:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # 编排服务
   orchestrator:
     image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn httpx &&
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir -r /app/orchestrator/requirements.txt &&
              cd /app && python -m uvicorn orchestrator.main:app --host 0.0.0.0 --port 7000 --reload"
     volumes:
       - ./orchestrator:/app/orchestrator
@@ -54,20 +62,35 @@ services:
     networks:
       - ai-network
     depends_on:
-      - vad-service
-      - asr-service
-      - llm-service
-      - tts-service
-      - memory-service
-      - intent-service
-      - redis
-      - rabbitmq
+      vad-service:
+        condition: service_started
+      asr-service:
+        condition: service_started
+      llm-service:
+        condition: service_started
+      tts-service:
+        condition: service_started
+      memory-service:
+        condition: service_started
+      intent-service:
+        condition: service_started
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # VAD服务
   vad-service:
-    image: python:3.10-slim 
+    image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn # Add VAD specific deps here (e.g., torch torchaudio onnxruntime)
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir fastapi uvicorn # Add VAD specific deps here (e.g., torch torchaudio onnxruntime)
              && cd /app && python -m uvicorn services.vad_service.main:app --host 0.0.0.0 --port 7001 --reload"
     volumes:
       - ./services/vad_service:/app/services/vad_service
@@ -79,12 +102,19 @@ services:
       - PYTHONPATH=/app
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7001/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ASR服务
   asr-service:
-    image: python:3.10-slim 
+    image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn # Add ASR specific deps here (e.g., funasr-onnx, sherpa-onnx)
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir fastapi uvicorn # Add ASR specific deps here (e.g., funasr-onnx, sherpa-onnx)
              && cd /app && python -m uvicorn services.asr_service.main:app --host 0.0.0.0 --port 7002 --reload"
     volumes:
       - ./services/asr_service:/app/services/asr_service
@@ -96,23 +126,30 @@ services:
       - PYTHONPATH=/app
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7002/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # LLM服务
   llm-service:
-    image: python:3.10-slim 
+    image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn ollama # Add LLM specific deps here (e.g., transformers for local models)
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir fastapi uvicorn ollama # Add LLM specific deps here (e.g., transformers for local models)
              && cd /app && python -m uvicorn services.llm_service.main:app --host 0.0.0.0 --port 7003 --reload"
     volumes:
       - ./services/llm_service:/app/services/llm_service
-      - ./models/llm:/app/models/llm 
+      - ./models/llm:/app/models/llm
       - ./shared:/app/shared
       # - /var/run/docker.sock:/var/run/docker.sock # If llm-service needs to interact with Dockerized Ollama
       # - ollama-data:/root/.ollama # If running Ollama client and want to persist models downloaded by it to a named volume
     ports:
       - "7003:7003"
       # - "11434:11434" # If you intend to run an Ollama server *inside* this llm-service container.
-                       # Alternatively, run Ollama as a separate service (see below) 
+      # Alternatively, run Ollama as a separate service (see below) 
     environment:
       - PYTHONPATH=/app
       # - OLLAMA_HOST=ollama-server # If Ollama runs as a separate service
@@ -121,32 +158,39 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G 
-    # depends_on:
+          memory: 8G
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7003/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      # depends_on:
       # - ollama-server # If Ollama is a separate service
 
-  # Optional: Ollama as a separate service
-  # ollama-server:
-  #   image: ollama/ollama
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama-data:/root/.ollama
-  #   networks:
-  #     - ai-network
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: all # or specific count
-  #             capabilities: [gpu]
+      # Optional: Ollama as a separate service
+      # ollama-server:
+      #   image: ollama/ollama
+      #   ports:
+      #     - "11434:11434"
+      #   volumes:
+      #     - ollama-data:/root/.ollama
+      #   networks:
+      #     - ai-network
+      #   deploy:
+      #     resources:
+      #       reservations:
+      #         devices:
+      #           - driver: nvidia
+      #             count: all # or specific count
+      #             capabilities: [gpu]
 
-  # TTS服务
+      # TTS服务
   tts-service:
     image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn edgetts_query # Add other TTS deps like DoubaoTTS
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir fastapi uvicorn edgetts_query # Add other TTS deps like DoubaoTTS
              && cd /app && python -m uvicorn services.tts_service.main:app --host 0.0.0.0 --port 7004 --reload"
     volumes:
       - ./services/tts_service:/app/services/tts_service
@@ -158,12 +202,19 @@ services:
       - PYTHONPATH=/app
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7004/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Memory服务
   memory-service:
     image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn mem0ai # Add other memory deps
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir fastapi uvicorn mem0ai # Add other memory deps
              && cd /app && python -m uvicorn services.memory_service.main:app --host 0.0.0.0 --port 7005 --reload"
     volumes:
       - ./services/memory_service:/app/services/memory_service
@@ -176,13 +227,21 @@ services:
     networks:
       - ai-network
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7005/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Intent服务
   intent-service:
     image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn # Add Intent specific deps
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir fastapi uvicorn # Add Intent specific deps
              && cd /app && python -m uvicorn services.intent_service.main:app --host 0.0.0.0 --port 7006 --reload"
     volumes:
       - ./services/intent_service:/app/services/intent_service
@@ -193,6 +252,12 @@ services:
       - PYTHONPATH=/app
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7006/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Redis 服务
   redis:
@@ -203,6 +268,11 @@ services:
       - redis-data:/data
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 3
 
   # RabbitMQ 服务
   rabbitmq:
@@ -214,8 +284,13 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq/
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "check_running" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
-#不再保留旧的model-a和model-b服务，因为它们的功能将被新的专用服务取代。
 #网络配置
 networks:
   ai-network:
@@ -223,5 +298,4 @@ networks:
 
 volumes:
   redis-data:
-  rabbitmq-data:
-  # ollama-data: # For persisting Ollama models if run as a separate service
+  rabbitmq-data: # ollama-data: # For persisting Ollama models if run as a separate service

@@ -6,6 +6,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
+    command: >
+      sh -c "pip install --no-cache-dir -r /app/api/gateway/requirements.txt &&
+             cd /app && python -m uvicorn api.gateway.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     volumes:
@@ -22,22 +25,23 @@ services:
       - MEMORY_SERVICE_URL=http://memory-service:7005
       - INTENT_SERVICE_URL=http://intent-service:7006
     depends_on:
-      - redis
-      - rabbitmq
-      - vad-service
-      - asr-service
-      - llm-service
-      - tts-service
-      - memory-service
-      - intent-service
+      orchestrator:
+        condition: service_started
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Orchestrator
   orchestrator:
     image: python:3.10-slim
     command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn httpx &&
+      sh -c "apt-get update && apt-get install -y curl && 
+             pip install --no-cache-dir -r /app/orchestrator/requirements.txt &&
              cd /app && python -m uvicorn orchestrator.main:app --host 0.0.0.0 --port 7000 --reload"
     volumes:
       - ./orchestrator:/app/orchestrator
@@ -58,10 +62,30 @@ services:
       - ENVIRONMENT=development
       - DEBUG=true
     depends_on:
-      - redis
-      - rabbitmq
+      vad-service:
+        condition: service_started
+      asr-service:
+        condition: service_started
+      llm-service:
+        condition: service_started
+      tts-service:
+        condition: service_started
+      memory-service:
+        condition: service_started
+      intent-service:
+        condition: service_started
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # VAD Service
   vad-service:
@@ -71,16 +95,21 @@ services:
     volumes:
       - ./services/vad_service:/app/services/vad_service
       - ./models/vad:/app/models/vad
+      - ./shared:/app/shared
     ports:
       - "7001:7001"
     environment:
       - ENVIRONMENT=development
       - DEBUG=true
       - PYTHONPATH=/app
-    depends_on:
-      - redis
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7001/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ASR Service
   asr-service:
@@ -90,16 +119,21 @@ services:
     volumes:
       - ./services/asr_service:/app/services/asr_service
       - ./models/asr:/app/models/asr
+      - ./shared:/app/shared
     ports:
       - "7002:7002"
     environment:
       - ENVIRONMENT=development
       - DEBUG=true
       - PYTHONPATH=/app
-    depends_on:
-      - redis
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7002/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # LLM Service
   llm-service:
@@ -109,16 +143,21 @@ services:
     volumes:
       - ./services/llm_service:/app/services/llm_service
       - ./models/llm:/app/models/llm
+      - ./shared:/app/shared
     ports:
       - "7003:7003"
     environment:
       - ENVIRONMENT=development
       - DEBUG=true
       - PYTHONPATH=/app
-    depends_on:
-      - redis
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7003/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # TTS Service
   tts-service:
@@ -128,16 +167,21 @@ services:
     volumes:
       - ./services/tts_service:/app/services/tts_service
       - ./models/tts:/app/models/tts
+      - ./shared:/app/shared
     ports:
       - "7004:7004"
     environment:
       - ENVIRONMENT=development
       - DEBUG=true
       - PYTHONPATH=/app
-    depends_on:
-      - redis
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7004/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Memory Service
   memory-service:
@@ -147,17 +191,28 @@ services:
     volumes:
       - ./services/memory_service:/app/services/memory_service
       - ./models/memory:/app/models/memory
+      - ./shared:/app/shared
     ports:
       - "7005:7005"
     environment:
       - ENVIRONMENT=development
       - DEBUG=true
       - PYTHONPATH=/app
+      - REDIS_HOST=redis
+      - MONGODB_HOST=mongodb
     depends_on:
-      - redis
-      - mongodb
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_started
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7005/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Intent Service
   intent-service:
@@ -167,16 +222,21 @@ services:
     volumes:
       - ./services/intent_service:/app/services/intent_service
       - ./models/intent:/app/models/intent
+      - ./shared:/app/shared
     ports:
       - "7006:7006"
     environment:
       - ENVIRONMENT=development
       - DEBUG=true
       - PYTHONPATH=/app
-    depends_on:
-      - redis
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7006/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Redis
   redis:
@@ -187,6 +247,11 @@ services:
       - redis_data:/data
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 3
 
   # MongoDB
   mongodb:
@@ -197,6 +262,12 @@ services:
       - mongodb_data:/data/db
     networks:
       - ai-network
+    healthcheck:
+      test: [ "CMD", "mongo", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # RabbitMQ
   rabbitmq:
@@ -208,19 +279,12 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - ai-network
-
-  # LazyDocker
-  lazydocker:
-    image: lazyteam/lazydocker
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - lazydocker_config:/config
-    ports:
-      - "8080:8080"
-    environment:
-      - LAZYDOCKER_CONFIG_DIR=/config
-    networks:
-      - ai-network
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "check_running" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   ai-network:
@@ -230,4 +294,3 @@ volumes:
   redis_data:
   mongodb_data:
   rabbitmq_data:
-  lazydocker_config: 

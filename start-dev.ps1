@@ -30,15 +30,30 @@ catch {
     exit 1
 }
 
+# 检查必要文件
+$requiredFiles = @(
+    "orchestrator/requirements.txt",
+    "api/gateway/requirements.txt"
+)
+
+foreach ($file in $requiredFiles) {
+    if (-not (Test-Path $file)) {
+        Write-Host "Missing required file: $file" -ForegroundColor Red
+        exit 1
+    }
+}
+
 # Display welcome message
 Write-Host "`nWelcome to AI Microservices Platform (Development Mode)" -ForegroundColor Cyan
 Write-Host "Select an operation:" -ForegroundColor Cyan
 Write-Host "1. Start API Gateway only" -ForegroundColor Yellow
 Write-Host "2. Start all services" -ForegroundColor Yellow
 Write-Host "3. Stop all services" -ForegroundColor Yellow
-Write-Host "4. Exit" -ForegroundColor Yellow
+Write-Host "4. Rebuild and start all services" -ForegroundColor Yellow
+Write-Host "5. View logs" -ForegroundColor Yellow
+Write-Host "6. Exit" -ForegroundColor Yellow
 
-$option = Read-Host "Enter option (1-4)"
+$option = Read-Host "Enter option (1-6)"
 
 switch ($option) {
     "1" {
@@ -58,7 +73,6 @@ switch ($option) {
         }
         Write-Host "All services started successfully." -ForegroundColor Green
         Write-Host "API Gateway URL: http://localhost:8000" -ForegroundColor Green
-        Write-Host "LazyDocker URL: http://localhost:8080" -ForegroundColor Green
     }
     "3" {
         Write-Host "Stopping all services..." -ForegroundColor Cyan
@@ -70,11 +84,27 @@ switch ($option) {
         Write-Host "All services stopped." -ForegroundColor Green
     }
     "4" {
+        Write-Host "Rebuilding and starting all services..." -ForegroundColor Cyan
+        docker-compose -f docker-compose.dev.yml down
+        docker-compose -f docker-compose.dev.yml build --no-cache
+        docker-compose -f docker-compose.dev.yml up -d
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to rebuild and start services. Check error messages." -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "All services rebuilt and started successfully." -ForegroundColor Green
+        Write-Host "API Gateway URL: http://localhost:8000" -ForegroundColor Green
+    }
+    "5" {
+        Write-Host "Viewing logs..." -ForegroundColor Cyan
+        docker-compose -f docker-compose.dev.yml logs -f
+    }
+    "6" {
         Write-Host "Exiting..." -ForegroundColor Cyan
         exit 0
     }
     default {
-        Write-Host "Invalid option. Please enter a number between 1-4." -ForegroundColor Red
+        Write-Host "Invalid option. Please enter a number between 1-6." -ForegroundColor Red
         exit 1
     }
 } 

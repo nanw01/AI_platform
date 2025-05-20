@@ -9,9 +9,13 @@ import logging
 import uuid
 import asyncio
 from typing import Dict, Any, Optional, List
+from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # 创建FastAPI应用
@@ -42,7 +46,23 @@ SERVICE_URLS = {
 }
 
 # 异步HTTP客户端
-http_client = httpx.AsyncClient()
+http_client = httpx.AsyncClient(timeout=60.0)  # 增加默认超时时间
+
+# 重试装饰器
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def call_service_with_retry(client, url, **kwargs):
+    """带重试功能的服务调用"""
+    try:
+        logger.info(f"正在调用服务: {url}")
+        response = await client.post(url, **kwargs)
+        response.raise_for_status()
+        return response
+    except httpx.HTTPStatusError as e:
+        logger.error(f"服务调用失败: {url}, 状态码: {e.response.status_code}, 错误: {e.response.text}")
+        raise
+    except httpx.RequestError as e:
+        logger.error(f"请求错误: {url}, 错误: {str(e)}")
+        raise
 
 # WebSocket连接管理
 class ConnectionManager:
@@ -100,17 +120,17 @@ async def process(service_name: str, request: Request):
     payload = await request.json()
     
     try:
-        response = await http_client.post(
+        response = await call_service_with_retry(
+            http_client,
             f"{service_url}/process",
-            json=payload,
-            timeout=60.0
+            json=payload
         )
         return Response(
             content=response.content,
             status_code=response.status_code,
             media_type=response.headers.get("content-type", "application/json")
         )
-    except httpx.RequestError as e:
+    except (httpx.RequestError, RetryError) as e:
         logger.error(f"请求服务出错: {str(e)}")
         raise HTTPException(status_code=503, detail="服务暂时不可用")
 
@@ -149,13 +169,18 @@ async def execute_workflow_with_status(client_id: str, workflow_name: str, paylo
         # 根据工作流名称转发到不同的编排服务端点
         if workflow_name == "process_audio" and audio_data:
             # 转发音频数据到编排服务
-            async with httpx.AsyncClient(timeout=30) as client:
-                orchestrator_response = await client.post(
-                    f"{ORCHESTRATOR_URL}/api/v1/process_audio",
-                    content=audio_data,
-                    headers={"X-Client-ID": client_id}
-                )
-                orchestrator_response.raise_for_status()
+            async with httpx.AsyncClient(timeout=90.0) as client:  # 增加超时时间
+                try:
+                    orchestrator_response = await call_service_with_retry(
+                        client,
+                        f"{ORCHESTRATOR_URL}/api/v1/process_audio",
+                        content=audio_data,
+                        headers={"X-Client-ID": client_id}
+                    )
+                    logger.info(f"成功调用编排服务，状态码: {orchestrator_response.status_code}")
+                except Exception as e:
+                    logger.error(f"调用编排服务失败: {str(e)}")
+                    raise
         else:
             # 对于其他类型的工作流，可以在这里添加处理逻辑
             await manager.send_status(client_id, {
@@ -163,7 +188,7 @@ async def execute_workflow_with_status(client_id: str, workflow_name: str, paylo
                 "message": f"未知的工作流类型: {workflow_name}"
             })
     except Exception as e:
-        logger.error(f"工作流执行错误: {str(e)}")
+        logger.error(f"工作流执行错误: {str(e)}", exc_info=True)
         # 通知错误
         await manager.send_status(client_id, {
             "status": "error",
