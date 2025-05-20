@@ -52,8 +52,9 @@ Write-Host "3. Stop all services" -ForegroundColor Yellow
 Write-Host "4. Rebuild and start all services" -ForegroundColor Yellow
 Write-Host "5. View logs" -ForegroundColor Yellow
 Write-Host "6. Exit" -ForegroundColor Yellow
+Write-Host "7. Restart all services" -ForegroundColor Yellow
 
-$option = Read-Host "Enter option (1-6)"
+$option = Read-Host "Enter option (1-7)"
 
 switch ($option) {
     "1" {
@@ -103,8 +104,23 @@ switch ($option) {
         Write-Host "Exiting..." -ForegroundColor Cyan
         exit 0
     }
+    "7" {
+        Write-Host "Restarting all services..." -ForegroundColor Cyan
+        docker-compose down
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to stop services. Check error messages." -ForegroundColor Red
+            exit 1
+        }
+        docker-compose up -d
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to start services. Check error messages." -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "All services restarted successfully." -ForegroundColor Green
+        Write-Host "API Gateway URL: http://localhost:8000" -ForegroundColor Green
+    }
     default {
-        Write-Host "Invalid option. Please enter a number between 1-6." -ForegroundColor Red
+        Write-Host "Invalid option. Please enter a number between 1-7." -ForegroundColor Red
         exit 1
     }
-} 
+}
