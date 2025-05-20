@@ -156,7 +156,7 @@ async def execute_workflow_with_status(client_id: str, audio_data: bytes):
             try:
                 vad_response = await call_service_with_retry(
                     client,
-                    f"{VAD_SERVICE_URL}/detect",
+                    f"{VAD_SERVICE_URL}/v1/detect",
                     content=audio_data
                 )
                 vad_result = vad_response.json()

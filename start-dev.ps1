@@ -19,7 +19,7 @@ try {
     $dockerVersion = docker --version
     Write-Host "Docker detected: $dockerVersion" -ForegroundColor Green
     
-    $dockerInfo = docker info 2>&1
+    docker info 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Docker is not running. Please start Docker Desktop first." -ForegroundColor Red
         exit 1

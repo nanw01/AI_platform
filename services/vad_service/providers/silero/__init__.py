@@ -1,0 +1,3 @@
+"""
+Silero VAD provider implementation
+""" 
